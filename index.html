@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="manifest" href="manifest.json">
+    <title>TanQuib v7.0 - Mobile</title>
+    <style>
+        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Courier New', monospace; touch-action: none; }
+        canvas { background: #050505; border: 2px solid #00ff00; max-width: 100vw; max-height: 100vh; }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; color: #00ff00; font-size: 14px; }
+        .bar-bg { width: 150px; height: 12px; background: rgba(0,40,0,0.5); border: 1px solid #00ff00; }
+        #hp-fill { width: 100%; height: 100%; background: #00ff00; transition: 0.2s; }
+        #radar-container { position: absolute; top: 10px; right: 10px; width: 100px; height: 100px; border-radius: 50%; border: 1px solid #00ff00; background: rgba(0, 20, 0, 0.8); overflow: hidden; z-index: 10; }
+        #overlay { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; color: #00ff00; }
+        button { background: #00ff00; color: #000; border: none; padding: 15px 30px; font-weight: bold; cursor: pointer; border: 2px solid #fff; }
+        
+        /* Controles Móviles */
+        .joystick-container { position: absolute; bottom: 30px; width: 120px; height: 120px; background: rgba(0, 255, 0, 0.1); border: 1px solid #00ff00; border-radius: 50%; touch-action: none; z-index: 20; }
+        #joy-mov { left: 30px; }
+        #joy-aim { right: 30px; }
+        .joy-stick { position: absolute; width: 50px; height: 50px; background: #00ff00; border-radius: 50%; top: 35px; left: 35px; opacity: 0.6; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <div style="text-align:center; padding:20px; border: 1px solid #00ff00;">
+            <h1>TANQUIB v7.0</h1>
+            <p>> JOYSTICK IZQ: MOVER<br>> JOYSTICK DER: APUNTAR/FUEGO</p>
+            <button onclick="comenzar()">[ INICIAR OPERACIÓN ]</button>
+        </div>
+    </div>
+
+    <div id="ui">
+        <div>INTEGRIDAD</div>
+        <div class="bar-bg"><div id="hp-fill"></div></div>
+        <div id="ammo-txt">AMMO: 40</div>
+        <div id="kill-txt" style="color: #ff4500;">KILLS: 0</div>
+    </div>
+
+    <div id="radar-container"><canvas id="radarCtx"></canvas></div>
+    
+    <div id="joy-mov" class="joystick-container"><div class="joy-stick" id="stick-mov"></div></div>
+    <div id="joy-aim" class="joystick-container"><div class="joy-stick" id="stick-aim"></div></div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const rCanvas = document.getElementById("radarCtx");
+    const rctx = rCanvas.getContext("2d");
+
+    canvas.width = 1000; canvas.height = 700;
+    rCanvas.width = 100; rCanvas.height = 100;
+
+    const MUNDO = { ancho: 3000, alto: 3000 };
+    const camara = { x: 0, y: 0 };
+    let temblor = 0;
+    let activo = false;
+    let scanRadar = 0;
+
+    const imagenes = {};
+    const fuentes = { suelo: 'suelo.png', base: 'tanque_base.png', tor: 'tanque_torreta.png', eneB: 'enemigo_base.png', eneT: 'enemigo_torreta.png', itemA: 'municion.png', itemH: 'vida.png', muro: 'muros.png' };
+    for (let key in fuentes) { 
+        imagenes[key] = new Image(); 
+        imagenes[key].src = fuentes[key]; 
+        imagenes[key].onload = () => { imagenes[key].falla = false; };
+        imagenes[key].onerror = () => { imagenes[key].falla = true; };
+    }
+
+    const tanque = { x: 1500, y: 1500, angB: 0, angT: 0, vel: 0, hp: 100, ammo: 40, cooldown: 400, ultimoD: 0, r: 40, bajas: 0 };
+    let enemigos = [], balas = [], loot = [], obstaculos = [], particulas = [];
+    
+    let joyMov = { x: 0, y: 0, active: false };
+    let joyAim = { x: 0, y: 0, active: false };
+
+    function initJoystick(id, dataObj, stickId) {
+        const cont = document.getElementById(id);
+        const stick = document.getElementById(stickId);
+        const handle = (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = cont.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            let dx = touch.clientX - cx, dy = touch.clientY - cy;
+            const dist = Math.min(Math.hypot(dx, dy), 60);
+            const ang = Math.atan2(dy, dx);
+            dataObj.x = Math.cos(ang) * (dist/60);
+            dataObj.y = Math.sin(ang) * (dist/60);
+            dataObj.active = true;
+            stick.style.transform = `translate(${dataObj.x * 40}px, ${dataObj.y * 40}px)`;
+        };
+        cont.addEventListener('touchstart', handle, {passive: false});
+        cont.addEventListener('touchmove', handle, {passive: false});
+        cont.addEventListener('touchend', () => { 
+            dataObj.active = false; dataObj.x = 0; dataObj.y = 0; 
+            stick.style.transform = `translate(0,0)`; 
+        });
+    }
+
+    initJoystick('joy-mov', joyMov, 'stick-mov');
+    initJoystick('joy-aim', joyAim, 'stick-aim');
+
+    function comenzar() { 
+        document.getElementById('overlay').style.display = 'none'; 
+        activo = true; 
+        for(let i=0; i<20; i++) {
+            obstaculos.push({ x: Math.random()*2500, y: Math.random()*2500, w: 200, h: 200 });
+        }
+        generarEnemigos(10);
+        loop();
+    }
+
+    function generarEnemigos(n) {
+        for(let i=0; i<n; i++) {
+            enemigos.push({ x: Math.random()*3000, y: Math.random()*3000, angB: 0, angT: 0, vel: 0, hp: 50, ultimoD: 0, cooldown: 2000, r: 40 });
+        }
+    }
+
+    function disparar(obj, esJugador) {
+        const ahora = Date.now();
+        if(esJugador && obj.ammo <= 0) return;
+        if(ahora - obj.ultimoD > obj.cooldown) {
+            if(esJugador) { 
+                obj.ammo--; 
+                document.getElementById('ammo-txt').innerText = "AMMO: "+obj.ammo; 
+                temblor = 6; 
+            }
+            obj.ultimoD = ahora;
+            const dx = Math.cos(obj.angT - Math.PI/2), dy = Math.sin(obj.angT - Math.PI/2);
+            balas.push({ x: obj.x + dx*70, y: obj.y + dy*70, vx: dx*18, vy: dy*18, esEnemigo: !esJugador });
+        }
+    }
+
+    function actualizar() {
+        if(!activo) return;
+        if(temblor > 0) temblor *= 0.9;
+
+        if(joyMov.active) {
+            tanque.angB += joyMov.x * 0.07;
+            tanque.vel = -joyMov.y * 6;
+        } else {
+            tanque.vel *= 0.9;
+        }
+
+        if(joyAim.active) {
+            tanque.angT = Math.atan2(joyAim.y, joyAim.x) + Math.PI/2;
+            disparar(tanque, true);
+        }
+
+        tanque.x += Math.cos(tanque.angB - Math.PI/2) * tanque.vel;
+        tanque.y += Math.sin(tanque.angB - Math.PI/2) * tanque.vel;
+        
+        // Colisiones
+        obstaculos.forEach(m => {
+            if(tanque.x + 30 > m.x && tanque.x - 30 < m.x + m.w && tanque.y + 30 > m.y && tanque.y - 30 < m.y + m.h) {
+                tanque.x -= Math.cos(tanque.angB - Math.PI/2) * tanque.vel;
+                tanque.y -= Math.sin(tanque.angB - Math.PI/2) * tanque.vel;
+                tanque.vel = 0;
+            }
+        });
+
+        camara.x = tanque.x - canvas.width/2;
+        camara.y = tanque.y - canvas.height/2;
+
+        balas.forEach((b, i) => {
+            b.x += b.vx; b.y += b.vy;
+            if(b.esEnemigo && Math.hypot(b.x-tanque.x, b.y-tanque.y) < 40) {
+                tanque.hp -= 5; temblor = 12; balas.splice(i,1);
+                document.getElementById('hp-fill').style.width = Math.max(0, tanque.hp)+"%";
+            }
+        });
+        
+        if(tanque.hp <= 0) {
+            activo = false;
+            alert("MISIÓN FALLIDA");
+            location.reload();
+        }
+        scanRadar += 0.05;
+    }
+
+    function loop() {
+        actualizar();
+        ctx.clearRect(0,0,canvas.width, canvas.height);
+        ctx.save();
+        if(temblor > 0.5) ctx.translate((Math.random()-0.5)*temblor, (Math.random()-0.5)*temblor);
+        ctx.translate(-camara.x, -camara.y);
+        
+        // Fondo
+        ctx.fillStyle = "#111"; 
+        ctx.fillRect(0,0,3000,3000);
+
+        // Obstáculos
+        ctx.strokeStyle = "#0f0";
+        ctx.lineWidth = 2;
+        obstaculos.forEach(m => ctx.strokeRect(m.x, m.y, m.w, m.h));
+
+        // Tanque
+        ctx.save(); 
+        ctx.translate(tanque.x, tanque.y); 
+        ctx.rotate(tanque.angB);
+        if(!imagenes.base.falla) ctx.drawImage(imagenes.base, -45, -55, 90, 110);
+        else { ctx.fillStyle = "grey"; ctx.fillRect(-30, -40, 60, 80); }
+        ctx.restore();
+
+        ctx.save(); 
+        ctx.translate(tanque.x, tanque.y); 
+        ctx.rotate(tanque.angT);
+        if(!imagenes.tor.falla) ctx.drawImage(imagenes.tor, -45, -75, 90, 130);
+        else { ctx.fillStyle = "green"; ctx.fillRect(-10, -50, 20, 60); }
+        ctx.restore();
+
+        // Balas
+        balas.forEach(b => { 
+            ctx.fillStyle = b.esEnemigo ? "red" : "#0f0"; 
+            ctx.beginPath(); ctx.arc(b.x,b.y,5,0,7); ctx.fill(); 
+        });
+
+        ctx.restore();
+        dibujarRadar();
+        requestAnimationFrame(loop);
+    }
+
+    function dibujarRadar() {
+        const c = 50; rctx.clearRect(0,0,100,100);
+        rctx.strokeStyle = "rgba(0,255,0,0.2)"; 
+        rctx.beginPath(); rctx.arc(c,c,45,0,7); rctx.stroke();
+        rctx.fillStyle = "#0f0"; 
+        rctx.beginPath(); rctx.arc(c,c,2,0,7); rctx.fill();
+    }
+
+    // Registro del Service Worker corregido
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log("TanQuib PWA: Sistema Operativo"))
+                .catch(err => console.log("Error PWA:", err));
+        });
+    }
+</script>
+</body>
+</html>

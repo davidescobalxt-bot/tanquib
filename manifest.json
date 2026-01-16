@@ -1,0 +1,23 @@
+{
+  "name": "TanQuib: Armored Warfare",
+  "short_name": "TanQuib",
+  "description": "Simulador de combate táctico de tanques",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#00ff00",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "tanque_base.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "tanque_base.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
