@@ -1,7 +1,7 @@
 {
-  "name": "TanQuib: Armored Warfare",
+  "name": "TanQuib v7 Armored",
   "short_name": "TanQuib",
-  "description": "Simulador de combate táctico de tanques",
+  "description": "Simulador de combate táctico de tanques en tiempo real.",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#000000",
